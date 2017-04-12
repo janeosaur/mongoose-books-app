@@ -8,10 +8,16 @@
 
 //require express in our app
 var express = require('express'),
-  bodyParser = require('body-parser');
+  bodyParser = require('body-parser'),
+  db = require('./models');
 
 // generate a new express app and call it 'app'
 var app = express();
+
+
+////////////////////
+//  MIDDLEWARE
+///////////////////
 
 // serve static files in public
 app.use(express.static('public'));
@@ -19,114 +25,125 @@ app.use(express.static('public'));
 // body parser config to accept our datatypes
 app.use(bodyParser.urlencoded({ extended: true }));
 
-var db = require('./models');
-
-
-
-var newBookUUID = 18;
-
-
+// custom middleware to console.log some helpful information
+//   in terminal every time we get a request
+function logRequestInfo(req, res, next){
+  console.log(`\nRECEIVED REQUEST : ${req.method} ${req.url}`);
+  console.log('query params:', req.query);
+  console.log('body:', req.body);
+  // request url parameters haven't been decided yet
+  //  so we'll have to log them inside any routes where
+  //  we want to use them
+  next();
+}
+app.use(logRequestInfo);
 
 ////////////////////
 //  ROUTES
 ///////////////////
-
-
-
 
 // define a root route: localhost:3000/
 app.get('/', function (req, res) {
   res.sendFile('views/index.html' , { root : __dirname});
 });
 
-// get all books (get index)
+// get all books
 app.get('/api/books', function (req, res) {
-  // send all books as JSON response
-  db.Book.find(function(err, books){
-    if (err) {
-      console.log("index error: " + err);
-      res.sendStatus(500);
-    }
-    res.json(books);
-  });
+  // find one book by its id
+  db.Book.find({})
+    .populate('author')
+    .exec(function(err, books){
+      if (err) {
+        console.log(err.message);
+        res.status(500).send();
+      } else {
+        res.json(books);
+      }
+    });
+
 });
 
-// get one book (get show)
+// find one book by its id
 app.get('/api/books/:id', function (req, res) {
-  // find one book by its id
-  db.Book.findOne({_id: req.params.id}, function(err, data) {
-      res.json(data);
-  });
-
-  console.log('findOne CRUD works');
-
-// Below is before refactoring the routes
-  // for(var i=0; i < books.length; i++) {
-  //   if (books[i]._id === req.params.id) {
-  //     res.json(books[i]);
-  //     break; // we found the right book, we can stop searching
-  //   }
-  // }
+  console.log('request url params:', req.params)
+  db.Book.findById(req.params.id)
+    // populate the author
+    .populate('Author')
+    .exec(function(err, book){
+      if (err) {
+        console.log(err.message);
+        res.status(500).send();
+      } else {
+        res.json(book);
+      }
+    });
 });
 
 // create new book
+// AUTHOR MUST EXIST ALREADY!
 app.post('/api/books', function (req, res) {
-  // create new book with form data
-  var newBook = new db.Book(req.body);
-  newBook.save(function(err, savedBook) {
-    res.json(savedBook);
+  // create new book with form data (`req.body`)
+  var newBook = new db.Book({
+    title: req.body.title,
+    image: req.body.image,
+    releaseDate: req.body.releaseDate,
   });
+  // find the author from req.body
+  db.Author.findOne({name: req.body.author}, function(err, author){
+    if (err) {
+      console.log(err.message);
+      res.status(500).send();
+    } else {
+      console.log('author is:', author);
+      if (author === null){
+        // this author doesn't exist in our database yet
+        // let's log an informative error message
+        console.log(`book create error: author ${req.body.author} not found - create author first!`);
+        res.status(500).send();
+      } else {
+        // found the author!
+        // add this author to the book
+        newBook.author = author;
+        // save newBook to database
+        newBook.save(function(err, book){
+          if (err) {
+            console.log('book save error:', err.message);
+            res.status(500).send();
+          } else {
+            console.log('saved book:', book );
+            // send back the book!
+            res.json(book);
+          }
+        });
+      }
+    }
+  });
+
 });
 
-  // Below is before refactoring route
-    // create new book with form data (`req.body`)
-//     console.log('books create', req.body);
-//     var newBook = req.body;
-//     newBook._id = newBookUUID++;
-//     books.push(newBook);
-//     res.json(newBook);
-
-
-// update book
-app.put('/api/books/:id', function(req,res){
-// get book id from url params (`req.params`)
-  console.log('books update', req.params);
-  var bookId = req.params.id;
-  // find the index of the book we want to remove
-  var updateBookIndex = books.findIndex(function(element, index) {
-    return (element._id === parseInt(req.params.id)); //params are strings
-  });
-  console.log('updating book with index', deleteBookIndex);
-  var bookToUpdate = books[deleteBookIndex];
-  books.splice(updateBookIndex, 1, req.params);
-  res.json(req.params);
-});
 
 // delete book
 app.delete('/api/books/:id', function (req, res) {
-  var bookId = req.params.id;
-  db.Book.findOneAndRemove({ _id: bookId }, function(err, deleteBook) {
-    res.json(deleteBook)});
-    console.log('testing findOneAndRemove CRUD') // this doesn't work?
-
-  // Below is before routes were refatored
   // get book id from url params (`req.params`)
-    // console.log('books delete', req.params);
-    // var bookId = req.params.id;
-    // // find the index of the book we want to remove
-    // var deleteBookIndex = books.findIndex(function(element, index) {
-    //   return (element._id === parseInt(req.params.id)); //params are strings
-    // });
-    // console.log('deleting book with index', deleteBookIndex);
-    // var bookToDelete = books[deleteBookIndex];
-    // books.splice(deleteBookIndex, 1);
-    // res.json(bookToDelete);
+  console.log('request url params:', req.params)
+  var bookId = req.params.id;
+
+  db.Book.findOneAndRemove({ _id: bookId }, function (err, deletedBook) {
+    if (err) {
+      console.log('book delete error:', err.message);
+      res.status(500).send();
+    } else {
+      res.json(deletedBook);
+    }
+  });
 });
 
 
-
+////////////////////
+//  LISTEN
+///////////////////
 
 
 app.listen(process.env.PORT || 3000, function () {
-  console.log('Book app listening at http://localhost:3000/');
+  console.log('Example app listening at http://localhost:3000/');
 });
