@@ -1,14 +1,15 @@
 var mongoose = require('mongoose');
-    Schema = mongoose.Schema;
+  Schema = mongoose.Schema;
 
-var AuthorSchema = new Schema({
+// Create Schema
+var AuthorSchema = new Schema ({
   name: String,
   alive: Boolean,
   image: String
 });
 
-// Create Author Model
+// Create model
 var Author = mongoose.model('Author', AuthorSchema);
 
-// Export Author from this module
+// Export
 module.exports = Author;

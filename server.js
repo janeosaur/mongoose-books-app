@@ -8,16 +8,20 @@
 
 //require express in our app
 var express = require('express'),
-  bodyParser = require('body-parser'),
-  db = require('./models');
+  bodyParser = require('body-parser');
+
+// connect to db models
+var db = require('./models');
 
 // generate a new express app and call it 'app'
 var app = express();
 
 
+
 ////////////////////
 //  MIDDLEWARE
 ///////////////////
+
 
 // serve static files in public
 app.use(express.static('public'));
@@ -38,6 +42,8 @@ function logRequestInfo(req, res, next){
 }
 app.use(logRequestInfo);
 
+
+
 ////////////////////
 //  ROUTES
 ///////////////////
@@ -47,94 +53,71 @@ app.get('/', function (req, res) {
   res.sendFile('views/index.html' , { root : __dirname});
 });
 
-// get all books
+// get all books - refactored after new author db
 app.get('/api/books', function (req, res) {
-  // find one book by its id
-  db.Book.find({})
+  // send all books as JSON response
+  db.Book.find()
     .populate('author')
     .exec(function(err, books){
       if (err) {
-        console.log(err.message);
+        console.log("error: " + err.message);
         res.status(500).send();
       } else {
         res.json(books);
       }
     });
+  });
 
-});
-
-// find one book by its id
+// get one book - refactored after new author db
 app.get('/api/books/:id', function (req, res) {
-  console.log('request url params:', req.params)
-  db.Book.findById(req.params.id)
-    // populate the author
-    .populate('Author')
-    .exec(function(err, book){
+  db.Book.findOne({_id: req.params.id })
+    .populate('author')
+    .exec (function(err, data) {
       if (err) {
-        console.log(err.message);
+        console.log("error: " + err.message);
         res.status(500).send();
       } else {
-        res.json(book);
+        res.json(data);
       }
-    });
+  });
 });
 
-// create new book
-// AUTHOR MUST EXIST ALREADY!
+// create new book - refactored after new author db
 app.post('/api/books', function (req, res) {
   // create new book with form data (`req.body`)
   var newBook = new db.Book({
     title: req.body.title,
     image: req.body.image,
-    releaseDate: req.body.releaseDate,
+    releaseDate: req.body.releaseDate
   });
-  // find the author from req.body
-  db.Author.findOne({name: req.body.author}, function(err, author){
-    if (err) {
-      console.log(err.message);
-      res.status(500).send();
-    } else {
-      console.log('author is:', author);
-      if (author === null){
-        // this author doesn't exist in our database yet
-        // let's log an informative error message
-        console.log(`book create error: author ${req.body.author} not found - create author first!`);
-        res.status(500).send();
+
+    // to add an author to a book if author already exists
+    db.Author.findOne({name: req.body.author}, function(err, author){
+      if (author === null) {
+        console.log(`book create error, author ${req.body.author} not found, create author first`)
       } else {
-        // found the author!
-        // add this author to the book
         newBook.author = author;
-        // save newBook to database
+        // add newBook to database
         newBook.save(function(err, book){
           if (err) {
-            console.log('book save error:', err.message);
-            res.status(500).send();
+            return console.log("create error: " + err);
           } else {
-            console.log('saved book:', book );
-            // send back the book!
-            res.json(book);
-          }
-        });
-      }
-    }
-  });
-
+          console.log("created ", book.title);
+          res.json(book);
+        }
+       });
+     }
+   });
 });
 
-
-// delete book
+// delete book -- no change after author db
 app.delete('/api/books/:id', function (req, res) {
   // get book id from url params (`req.params`)
-  console.log('request url params:', req.params)
+  console.log('books delete', req.params);
   var bookId = req.params.id;
-
+  // find the index of the book we want to remove
   db.Book.findOneAndRemove({ _id: bookId }, function (err, deletedBook) {
-    if (err) {
-      console.log('book delete error:', err.message);
-      res.status(500).send();
-    } else {
-      res.json(deletedBook);
-    }
+    res.json(deletedBook);
   });
 });
 
@@ -142,7 +125,6 @@ app.delete('/api/books/:id', function (req, res) {
 ////////////////////
 //  LISTEN
 ///////////////////
-
 
 app.listen(process.env.PORT || 3000, function () {
   console.log('Example app listening at http://localhost:3000/');
